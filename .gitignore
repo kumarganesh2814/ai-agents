@@ -6,7 +6,7 @@ node_modules/
 # Ignore log files
 *.log
 # Ignore environment variables
-.env
+*.env
 # Ignore build directories
 dist/
 # Ignore coverage reports
