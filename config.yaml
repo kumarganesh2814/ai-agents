@@ -1,0 +1,41 @@
+# DevOpsGPT Configuration
+
+llm:
+  provider: "openai"
+  model: "gpt-4.5-preview"
+  max_tokens: 500
+
+plugins:
+  enabled:
+    - troubleshooting
+    - cicd
+    - cost_analysis
+    - monitoring
+
+security:
+  require_confirmation: true
+  dry_run_by_default: true
+  audit_logging: true
+  allowed_actions:
+    - logs
+    - status
+    - list
+    - describe
+    - get
+  restricted_actions:
+    - delete
+    - remove
+    - terminate
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "devops_gpt.log"
+
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+  grafana:
+    enabled: true
+    url: "http://localhost:3000"

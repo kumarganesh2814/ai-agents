@@ -15,6 +15,8 @@ from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
 import subprocess
 import yaml
+from devops_gpt_state import StateManager, StateChangeEvent
+from devops_gpt.llm_providers import LLMProvider, create_llm_provider
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -82,9 +84,25 @@ class BasePlugin(ABC):
 class CommandParser:
     """Natural language command parser using pattern matching and LLM"""
     
-    def __init__(self):
+    def __init__(self, config_path: str = "devops_gpt_config.yaml"):
+        # Load LLM config
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+            llm_config = config.get("llm", {})
+        except Exception as e:
+            logger.warning(f"Could not load LLM config: {e}")
+            llm_config = {}
+        
+        # Create LLM provider
+        try:
+            self.llm = create_llm_provider(llm_config)
+        except Exception as e:
+            logger.error(f"Failed to initialize LLM provider: {e}")
+            self.llm = None
+
         self.intent_patterns = {
-            # Troubleshooting patterns
+            # Troubleshooting patterns 
             r"show.*logs.*from.*(?P<service>\w+)": {
                 "intent": "show_logs",
                 "category": TaskCategory.TROUBLESHOOTING
@@ -114,7 +132,7 @@ class CommandParser:
                 "category": TaskCategory.CLOUD_PROVISIONING
             },
             
-            # Cost analysis
+            # Cost analysis 
             r"show.*cost.*(?P<service>\w+)": {
                 "intent": "analyze_cost",
                 "category": TaskCategory.COST_USAGE
@@ -131,6 +149,7 @@ class CommandParser:
         """Parse natural language input into a structured command"""
         user_input = user_input.strip().lower()
         
+        # Try pattern matching first
         for pattern, config in self.intent_patterns.items():
             match = re.search(pattern, user_input)
             if match:
@@ -143,6 +162,41 @@ class CommandParser:
                     confidence=0.8,
                     dry_run=True
                 )
+        
+        # Fallback to LLM if available
+        if self.llm:
+            try:
+                # Prompt the LLM to classify the command
+                prompt = (
+                    f'Given this command: "{user_input}"\n'
+                    'Please classify it into one of these categories:\n'
+                    '- show_logs (TaskCategory.TROUBLESHOOTING)\n'
+                    '- restart_service (TaskCategory.TROUBLESHOOTING)\n'
+                    '- health_check (TaskCategory.TROUBLESHOOTING)\n'
+                    '- trigger_pipeline (TaskCategory.CICD)\n'
+                    '- rollback_deployment (TaskCategory.CICD)\n'
+                    '- create_instance (TaskCategory.CLOUD_PROVISIONING)\n'
+                    '- analyze_cost (TaskCategory.COST_USAGE)\n'
+                    '- security_scan (TaskCategory.SECURITY_COMPLIANCE)\n\n'
+                    'Return only a JSON object with these fields:\n'
+                    '{"intent": "<category>", "parameters": {}, "confidence": <0.0-1.0>}'
+                )
+
+                response = await self.llm.generate_response(prompt, max_tokens=100)
+                try:
+                    result = json.loads(response)
+                    return Command(
+                        intent=result["intent"],
+                        category=getattr(TaskCategory, result["intent"].split("_")[0].upper()),
+                        parameters=result.get("parameters", {}),
+                        raw_input=user_input,
+                        confidence=result.get("confidence", 0.5),
+                        dry_run=True
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to parse LLM response: {e}")
+            except Exception as e:
+                logger.error(f"LLM classification failed: {e}")
         
         # Default fallback
         return Command(
@@ -292,17 +346,36 @@ class DevOpsGPT:
         self.plugins: List[BasePlugin] = []
         self.context = SessionContext()
         self.audit_log = []
+        self.state_manager = StateManager()
         
         # Register default plugins
         self.register_plugin(TroubleshootingPlugin())
+        
+        # Register state change observers
+        self._register_state_observers()
     
     def register_plugin(self, plugin: BasePlugin):
         """Register a new plugin"""
         self.plugins.append(plugin)
         logger.info(f"Registered plugin: {plugin.name}")
     
+    def _register_state_observers(self):
+        """Register observers for state events"""
+        self.state_manager.register_observer(
+            StateChangeEvent.ERROR_OCCURRED,
+            lambda error: logger.error(f"State error: {error}")
+        )
+        self.state_manager.register_observer(
+            StateChangeEvent.COMMAND_EXECUTED,
+            lambda data: logger.info(
+                f"Command executed: {data['command']} (success: {data['success']})"
+            )
+        )
+    
     async def process_command(self, user_input: str, execution_mode: ExecutionMode = ExecutionMode.DRY_RUN) -> ExecutionResult:
         """Process natural language command"""
+        start_time = datetime.now()
+        
         # Parse command
         command = await self.parser.parse(user_input)
         command.dry_run = (execution_mode == ExecutionMode.DRY_RUN)
@@ -310,22 +383,55 @@ class DevOpsGPT:
         # Log for audit
         self._audit_log(command)
         
-        # Find appropriate plugin
-        for plugin in self.plugins:
-            if await plugin.can_handle(command):
-                result = await plugin.execute(command)
-                
-                # Update context
-                self.context.update_context(command, result)
-                
-                return result
-        
-        # No plugin found
-        return ExecutionResult(
-            success=False,
-            output="No plugin found to handle this command",
-            error=f"Unsupported command: {user_input}"
-        )
+        try:
+            # Find appropriate plugin
+            for plugin in self.plugins:
+                if await plugin.can_handle(command):
+                    # Execute command and track metrics
+                    result = await plugin.execute(command)
+                    execution_time = (datetime.now() - start_time).total_seconds()
+                    
+                    # Update state
+                    self.state_manager.record_command(
+                        command.raw_input,
+                        result.success,
+                        execution_time
+                    )
+                    
+                    if not result.success and result.error:
+                        self.state_manager.record_error(result.error)
+                    
+                    # Update context
+                    self.context.update_context(command, result)
+                    self.state_manager.update_context(self.context.namespace)
+                    
+                    # Update plugin state if needed
+                    if hasattr(plugin, 'get_state'):
+                        self.state_manager.update_plugin_state(
+                            plugin.name,
+                            plugin.get_state()
+                        )
+                    
+                    return result
+            
+            # No plugin found
+            no_handler = ExecutionResult(
+                success=False,
+                output="No plugin found to handle this command",
+                error=f"Unsupported command: {user_input}"
+            )
+            self.state_manager.record_error(no_handler.error)
+            return no_handler
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error processing command: {error_msg}")
+            self.state_manager.record_error(error_msg)
+            return ExecutionResult(
+                success=False,
+                output="",
+                error=error_msg
+            )
     
     def _audit_log(self, command: Command):
         """Log command for audit trail"""
