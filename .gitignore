@@ -1,0 +1,98 @@
+#add files to be ignored by git
+# This file is used to specify files and directories that should be ignored by Git.
+# It is useful for excluding files that are not relevant to the project, such as build artifacts, temporary files, and sensitive information.
+# Ignore node_modules directory
+node_modules/
+# Ignore log files
+*.log
+# Ignore environment variables
+.env
+# Ignore build directories
+dist/
+# Ignore coverage reports
+coverage/
+# Ignore IDE specific files 
+.idea/
+# Ignore OS generated files
+.DS_Store
+# Ignore temporary files
+*.tmp
+# Ignore backup files
+*.bak
+# Ignore package lock files
+package-lock.json
+# Ignore yarn lock files
+yarn.lock
+# Ignore npm debug log files
+npm-debug.log*
+# Ignore test output files
+test-output/
+# Ignore configuration files
+*.config 
+# Ignore documentation files
+docs/
+# Ignore cache directories
+.cache/
+# Ignore compiled files
+*.o
+# Ignore binary files
+*.exe
+# Ignore images
+*.png
+*.jpg
+*.jpeg
+*.gif   
+# Ignore audio files
+*.mp3
+*.wav
+# Ignore video files
+*.mp4
+*.avi
+*.mov   
+# Ignore fonts
+*.ttf
+*.otf
+# Ignore archives
+*.zip   
+*.tar.gz
+# Ignore secrets
+*.pem
+*.key   
+# Ignore specific IDE configurations
+.vscode/
+# Ignore Python bytecode files
+__pycache__/
+*.pyc
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/ 
+# Ignore Ruby specific files
+*.gem
+# Ignore Java class files
+*.class
+# Ignore Go binary files
+*.go
+# Ignore Rust target directory
+target/
+# Ignore Cargo lock file
+Cargo.lock  
+# Ignore Elixir build artifacts
+_build/
+# Ignore Erlang build artifacts
+ebin/
+# Ignore Haskell build artifacts
+dist-newstyle/
+# Ignore Scala build artifacts
+target/scala-*  
+# Ignore CMake build artifacts
+CMakeFiles/
+CMakeCache.txt
+# Ignore Swift build artifacts
+*.xcodeproj/
+*.xcworkspace/  
+# Ignore Android build artifacts
+*.apk
+*.ap_bundle
+*.dex
+# Ignore iOS build artifacts
+*.ipa   
+# Ignore Flutter build artifacts
