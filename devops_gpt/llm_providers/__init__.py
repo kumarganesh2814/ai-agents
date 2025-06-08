@@ -48,7 +48,92 @@ class OpenAIProvider(LLMProvider):
     def get_name(self) -> str:
         return "openai"
 
+def create_llm_provider(config: Dict[str, Any]) -> LLMProvider:
+    """Create LLM provider based on configuration"""
+    provider_type = config.get('llm', {}).get('provider', 'openai').lower()
+    
+    if provider_type == 'openai':
+        api_key = config.get('llm', {}).get('openai_api_key') or os.getenv('OPENAI_API_KEY')
+        model = config.get('llm', {}).get('openai_model', 'gpt-4')
+        if not api_key:
+            raise ValueError("OpenAI API key required")
+        return OpenAIProvider(api_key, model)
+        
+    elif provider_type == 'ollama':
+        base_url = config.get('llm', {}).get('base_url', 'http://localhost:11434')
+        model = config.get('llm', {}).get('model', 'llama2')
+        max_tokens = config.get('llm', {}).get('max_tokens', 500)
+        fallback_provider = config.get('llm', {}).get('fallback_provider', False)
+        
+        # Optional fallback config
+        openai_api_key = None
+        openai_model = None
+        if fallback_provider:
+            openai_api_key = config.get('llm', {}).get('openai_api_key')
+            openai_model = config.get('llm', {}).get('openai_model')
+            
+        return OllamaProvider(
+            base_url=base_url,
+            model=model, 
+            max_tokens=max_tokens,
+            fallback_provider=fallback_provider,
+            openai_api_key=openai_api_key,
+            openai_model=openai_model
+        )
+        
+    else:
+        raise ValueError(f"Unknown LLM provider type: {provider_type}")
+
 class OllamaProvider(LLMProvider):
+    """Ollama provider for local LLM inference"""
+    
+    def __init__(self, base_url: str, model: str, max_tokens: int,
+                 fallback_provider: bool = False,
+                 openai_api_key: Optional[str] = None,
+                 openai_model: Optional[str] = None):
+        """Initialize Ollama provider"""
+        self.base_url = base_url
+        self.model = model 
+        self.max_tokens = max_tokens
+        self.fallback_provider = fallback_provider
+        self.openai_api_key = openai_api_key
+        self.openai_model = openai_model
+        
+        # Initialize fallback provider
+        self._fallback = None 
+        if fallback_provider:
+            if not openai_api_key or not openai_model:
+                raise ValueError("OpenAI API key and model required for fallback")
+            self._fallback = OpenAIProvider(openai_api_key, openai_model)
+    
+    async def generate_response(self, prompt: str, max_tokens: Optional[int] = None) -> str:
+        """Generate response from prompt"""
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "max_tokens": max_tokens or self.max_tokens
+                }
+            )
+            
+            if response.status_code != 200:
+                if self.fallback_provider:
+                    # Try fallback to OpenAI
+                    return await self._fallback.generate_response(prompt, max_tokens)
+                raise Exception(f"Ollama API error: {response.json()}")
+                
+            return response.json()["response"]
+            
+        except Exception as e:
+            if self.fallback_provider:
+                # Try fallback on connection error
+                return await self._fallback.generate_response(prompt, max_tokens)
+            raise e
+    
+    def get_name(self) -> str:
+        return "ollama"
     """Ollama local LLM provider"""
     
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama2"):

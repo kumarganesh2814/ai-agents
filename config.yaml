@@ -1,9 +1,18 @@
 # DevOpsGPT Configuration
 
 llm:
-  provider: "openai"
-  model: "gpt-4.5-preview"
+  # Default provider - can be "openai" or "ollama"
+  provider: "ollama"
+  
+  # Ollama settings (primary)
+  base_url: "http://localhost:11434"
+  model: "llama2"
   max_tokens: 500
+
+  # OpenAI settings (optional fallback)
+  fallback_provider: true
+  openai_api_key: "${OPENAI_API_KEY}"
+  openai_model: "gpt-4"
 
 plugins:
   enabled:

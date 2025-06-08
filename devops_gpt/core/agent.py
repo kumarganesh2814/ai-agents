@@ -3,12 +3,12 @@ import importlib
 import pkgutil
 import traceback
 from typing import Optional, Dict, Any
-from openai import OpenAI
 from rich.console import Console
 import structlog
 import yaml
 from devops_gpt.plugins.base import BasePlugin
 from devops_gpt.utils.config import Config
+from devops_gpt.llm_providers import create_llm_provider, LLMProvider
 
 # Initialize logger
 logger = structlog.get_logger()
@@ -19,7 +19,7 @@ class DevOpsGPT:
         self.config = Config()  # Initialize configuration
         self.plugins: Dict[str, BasePlugin] = {}
         self.context = {}  # For storing conversation context
-        self.client = None
+        self.llm_provider: Optional[LLMProvider] = None
         self.setup()
         
     def setup(self):
@@ -29,12 +29,9 @@ class DevOpsGPT:
             if not self.config.validate:
                 raise ValueError("Invalid configuration")
                 
-            # Setup OpenAI client
-            self.client = OpenAI(
-                api_key=self.config.openai_api_key,
-                max_retries=3,
-                timeout=30.0
-            )
+            # Setup LLM provider
+            self.llm_provider = create_llm_provider(self.config.llm)
+            logger.info("llm.provider.initialized", provider=self.llm_provider.get_name())
             
             # Initialize plugins
             self._load_plugins()
@@ -127,10 +124,7 @@ class DevOpsGPT:
     async def _parse_command(self, command: str) -> Dict[str, Any]:
         """Parse command using LLM to determine intent and parameters"""
         try:
-            response = await self.client.chat.completions.create(
-                model="gpt-4.5-preview",  # Updated to use gpt-4.5-preview
-                messages=[
-                    {"role": "system", "content": """You are a DevOps command parser.
+            prompt = """You are a DevOps command parser.
 Parse the command into a structured format with:
 - action: The main action to perform
 - category: One of [troubleshooting, cicd, cloud, cost, security, monitoring]
@@ -149,19 +143,21 @@ Example output format:
     "context": {
         "current_namespace": "default"
     }
-}"""},
-                    {"role": "user", "content": command}
-                ],
-                temperature=0.3,  # Lower temperature for more precise responses
+}
+
+Command to parse: """ + command
+            
+            response = await self.llm_provider.generate_response(
+                prompt=prompt,
                 max_tokens=500
             )
             
-            if not response.choices:
-                raise ValueError("No response from OpenAI")
-                
+            if not response:
+                raise ValueError("No response from LLM provider")
+            
             try:
                 # Parse the response content as a Python dictionary
-                content = response.choices[0].message.content.strip()
+                content = response.strip()
                 return eval(content)
             except Exception as e:
                 logger.error("command.parse_failed", error=f"Failed to parse response: {str(e)}")

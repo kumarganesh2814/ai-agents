@@ -23,10 +23,18 @@ class Config:
         env_path = os.path.join(os.getcwd(), '.env')
         logger.debug("env_file", path=env_path, exists=os.path.exists(env_path))
         
-        # OpenAI Configuration
-        self.openai_api_key = os.getenv('OPENAI_API_KEY', '').strip()
-        logger.debug("api_key", present=bool(self.openai_api_key), 
-                    length=len(self.openai_api_key) if self.openai_api_key else 0)
+        # Load LLM configuration
+        self.llm = {
+            'provider': os.getenv('LLM_PROVIDER', 'ollama').lower(),
+            'base_url': os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434'),
+            'model': os.getenv('OLLAMA_MODEL', 'llama2'),
+            'max_tokens': int(os.getenv('MAX_TOKENS', '500')),
+            'openai_api_key': os.getenv('OPENAI_API_KEY', '').strip(),
+            'openai_model': os.getenv('OPENAI_MODEL', 'gpt-4.5-preview'),
+            'fallback_provider': os.getenv('FALLBACK_PROVIDER', 'false').lower() == 'true'
+        }
+        
+        logger.debug("llm_config", provider=self.llm['provider'])
         
         # Logging Configuration
         self.log_level = os.getenv('LOG_LEVEL', 'INFO')
@@ -34,18 +42,32 @@ class Config:
         # Application Configuration
         self.dry_run_default = os.getenv('DRY_RUN_DEFAULT', 'true').lower() == 'true'
         
-        # Model Configuration
-        self.model = os.getenv('OPENAI_MODEL', 'gpt-4.5-preview')
-        
     @property
     def validate(self) -> bool:
         """Validate configuration"""
-        if not self.openai_api_key:
-            logger.error("config.validation_failed", error="OpenAI API key not set")
-            return False
-            
-        if not self.openai_api_key.startswith('sk-'):
-            logger.error("config.validation_failed", error="Invalid OpenAI API key format")
+        if self.llm['provider'] == 'openai':
+            if not self.llm['openai_api_key']:
+                logger.error("config.validation_failed", error="OpenAI API key not set")
+                return False
+            if not self.llm['openai_api_key'].startswith('sk-'):
+                logger.error("config.validation_failed", error="Invalid OpenAI API key format")
+                return False
+        elif self.llm['provider'] == 'ollama':
+            # Basic validation for Ollama configuration
+            if not self.llm['base_url']:
+                logger.error("config.validation_failed", error="Ollama base URL not set")
+                return False
+            if not self.llm['model']:
+                logger.error("config.validation_failed", error="Ollama model not set")
+                return False
+                
+            # If fallback is enabled, validate OpenAI config
+            if self.llm['fallback_provider']:
+                if not self.llm['openai_api_key'] or not self.llm['openai_model']:
+                    logger.error("config.validation_failed", error="OpenAI fallback configuration incomplete")
+                    return False
+        else:
+            logger.error("config.validation_failed", error=f"Unknown provider: {self.llm['provider']}")
             return False
             
         logger.info("config.validated", status="success")
