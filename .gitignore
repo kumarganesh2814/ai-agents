@@ -83,16 +83,3 @@ ebin/
 dist-newstyle/
 # Ignore Scala build artifacts
 target/scala-*  
-# Ignore CMake build artifacts
-CMakeFiles/
-CMakeCache.txt
-# Ignore Swift build artifacts
-*.xcodeproj/
-*.xcworkspace/  
-# Ignore Android build artifacts
-*.apk
-*.ap_bundle
-*.dex
-# Ignore iOS build artifacts
-*.ipa   
-# Ignore Flutter build artifacts
